@@ -18,7 +18,6 @@ import Network.HostName (HostName, getHostName)
 import Network.Wai.Handler.Warp (Port)
 import Options.Applicative
 import Paths_vira qualified
-import Vira.Lib.BinaryCache (AtticConfig (..), BinaryCacheConfig (..), CachixConfig (..))
 import Vira.State.Type (Repo (Repo), RepoName)
 import Prelude hiding (Reader, reader, runReader)
 
