@@ -18,9 +18,10 @@ import Effectful (Eff, IOE, (:>))
 -- Assuming you have a variant that doesn't need stdin and ignores output,
 -- or adapt as needed. If procStrictWithNonNullExitCode_ is not available,
 -- you might need to use procStrictWithNonNullExitCode and ignore its result.
-import Effectful.Process (Process, procStrictWithNonNullExitCode)
+import Effectful.Process (Process)
 import GHC.Generics (Generic)
 import System.Environment (lookupEnv)
+import System.Process (callProcess)
 import UnliftIO.Exception (Exception, throwString) -- Or your preferred error handling
 import Vira.App.Logging (Log, Message, logInfo, logError) -- Assuming these are your logging functions
 -- toString is available from Relude (Prelude)
@@ -85,7 +86,7 @@ loginAttic AtticConfig{..} = do
       throwString $ T.unpack errMsg
     Just token -> do
       logInfo "Attic token found. Proceeding with attic login."
-      void $ procStrictWithNonNullExitCode "attic" [toString atticLoginName, toString atticCacheUrl, token]
+      liftIO $ callProcess "attic" [toString atticLoginName, toString atticCacheUrl, token]
       logInfo "Attic login command executed."
 
 -- | Pushes store paths to the configured binary cache.
@@ -94,11 +95,11 @@ push NoBinaryCache _storePaths = logInfo "Binary caching is disabled. Skipping p
 push (UseCachix CachixConfig{..}) storePaths = do
   logInfo $ "Pushing to Cachix cache: " <> cachixCacheName
   -- CACHIX_AUTH_TOKEN is expected to be in the environment.
-  void $ procStrictWithNonNullExitCode "cachix" (["push", toString cachixCacheName] ++ storePaths)
+  liftIO $ callProcess "cachix" (["push", toString cachixCacheName] ++ storePaths)
   logInfo "Successfully pushed to Cachix."
 push (UseAttic AtticConfig{..}) storePaths = do
   let fullAtticCacheName = atticLoginName <> ":" <> atticCacheName
   logInfo $ "Pushing to Attic cache: " <> fullAtticCacheName
   -- Attic login should have been performed separately if needed.
-  void $ procStrictWithNonNullExitCode "attic" (["push", toString fullAtticCacheName] ++ storePaths)
+  liftIO $ callProcess "attic" (["push", toString fullAtticCacheName] ++ storePaths)
   logInfo "Successfully pushed to Attic."
