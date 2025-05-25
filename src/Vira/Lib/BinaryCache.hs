@@ -20,7 +20,6 @@ import Effectful (Eff, IOE, (:>))
 -- you might need to use procStrictWithNonNullExitCode and ignore its result.
 import Effectful.Process (Process)
 import GHC.Generics (Generic)
-import System.Environment (lookupEnv)
 import System.Process (callProcess)
 import UnliftIO.Exception (Exception, throwString) -- Or your preferred error handling
 import Vira.App.Logging (Log, Message, logInfo, logError) -- Assuming these are your logging functions
