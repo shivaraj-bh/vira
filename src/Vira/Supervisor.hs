@@ -17,6 +17,8 @@ import System.Exit (ExitCode (ExitSuccess))
 import System.FilePath ((</>))
 import Vira.App qualified as App
 import Vira.App.Logging
+import Vira.Lib.BinaryCache (BinaryCacheConfig (..))
+import Vira.Lib.BinaryCache qualified as BinaryCache
 import Vira.Lib.Process qualified as Process
 import Vira.Supervisor.Type
 import Prelude hiding (readMVar)
@@ -52,13 +54,15 @@ startTask ::
   FilePath ->
   -- List of processes to run in sequence
   NonEmpty CreateProcess ->
+  -- Binary cache configuration
+  BinaryCacheConfig ->
   -- Handler to call after the task finishes
   ( -- Exit code
     ExitCode ->
     Eff es ()
   ) ->
   Eff es ()
-startTask supervisor taskId pwd procs h = do
+startTask supervisor taskId pwd procs cacheConfig h = do
   logSupervisorState supervisor
   let msg = "Starting task group: " <> show (cmdspec <$> procs) <> " in " <> toText pwd
   log Info msg
@@ -71,7 +75,7 @@ startTask supervisor taskId pwd procs h = do
         createDirectoryIfMissing True pwd
         logToWorkspaceOutput taskId pwd msg
         asyncHandle <- async $ do
-          hdl <- startTask' taskId pwd h procs
+          hdl <- startTask' taskId pwd cacheConfig h procs
           logToWorkspaceOutput taskId pwd "CI finished"
           pure hdl
         let task = Task {workDir = pwd, asyncHandle}
@@ -90,19 +94,30 @@ logToWorkspaceOutput taskId base (msg :: Text) = do
 
 startTask' ::
   forall es.
-  (Process :> es, Log Message :> es, IOE :> es, FileSystem :> es) =>
+  (Process :> es, Log Message :> es, IOE :> es, FileSystem :> es, Concurrent :> es) => -- Added Concurrent for push
   TaskId ->
   FilePath ->
+  BinaryCacheConfig ->
   (ExitCode -> Eff es ()) ->
   -- List of processes to run in sequence
   NonEmpty CreateProcess ->
   Eff es ExitCode
-startTask' taskId pwd h = runProcs . toList
+startTask' taskId pwd cacheConfig h = runProcs . toList
   where
     -- Run each process one after another; exiting immediately if any fails
     runProcs :: [CreateProcess] -> Eff es ExitCode
     runProcs [] = do
       log Info $ "All procs for task " <> show taskId <> " finished successfully"
+      -- Push to binary cache on success
+      case cacheConfig of
+        NoBinaryCache -> logInfo $ "Task " <> show taskId <> ": No binary cache configured, skipping push."
+        _ -> do
+          logInfo $ "Task " <> show taskId <> ": Pushing to binary cache."
+          -- FIXME: Replace '[]' with actual store paths from the build
+          let storePathsToPush = [] :: [FilePath]
+          if null storePathsToPush
+            then logWarning $ "Task " <> show taskId <> ": No store paths to push to binary cache."
+            else BinaryCache.push cacheConfig storePathsToPush
       h ExitSuccess
       pure ExitSuccess
     runProcs (proc : rest) =

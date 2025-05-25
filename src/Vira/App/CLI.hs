@@ -18,6 +18,7 @@ import Network.HostName (HostName, getHostName)
 import Network.Wai.Handler.Warp (Port)
 import Options.Applicative
 import Paths_vira qualified
+import Vira.Lib.BinaryCache (AtticConfig (..), BinaryCacheConfig (..), CachixConfig (..))
 import Vira.State.Type (Repo (Repo), RepoName)
 import Prelude hiding (Reader, reader, runReader)
 
@@ -47,8 +48,8 @@ data RepoSettings = RepoSettings
   -- ^ Repositories (git clone URL) to watch and build
   , branchWhitelist :: Set Text
   -- ^ Limit to building these branches to build
-  , binaryCache :: Maybe BinaryCacheProvider
-  -- ^ Binary cache settings (Cachix or Attic)
+  , cliBinaryCacheProvider :: Maybe CLISelectedBinaryCacheProvider
+  -- ^ Binary cache settings selected via CLI (Cachix or Attic)
   }
   deriving stock (Show)
 
@@ -73,9 +74,9 @@ data AtticSettings = AtticSettings
   deriving stock (Show)
 
 -- | Represents the choice of binary cache provider and its settings from CLI.
-data BinaryCacheProvider
-  = BCPSUseCachix CachixSettings
-  | BCPSUseAttic AtticSettings
+data CLISelectedBinaryCacheProvider
+  = CLIUseCachix CachixSettings
+  | CLIUseAttic AtticSettings
   deriving stock (Show)
 
 defaultRepos :: [Text]
@@ -172,9 +173,9 @@ repoSettingsParser = do
   pure RepoSettings {..}
 
 -- | Parser for BinaryCacheProvider (choosing between Cachix or Attic)
-binaryCacheProviderParser :: Parser BinaryCacheProvider
-binaryCacheProviderParser =
-  (BCPSUseCachix <$> cachixSettingsParser) <|> (BCPSUseAttic <$> atticSettingsParser)
+cliBinaryCacheProviderParser :: Parser CLISelectedBinaryCacheProvider
+cliBinaryCacheProviderParser =
+  (CLIUseCachix <$> cachixSettingsParser) <|> (CLIUseAttic <$> atticSettingsParser)
 
 -- | Parser for CachixSettings
 cachixSettingsParser :: Parser CachixSettings
