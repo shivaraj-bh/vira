@@ -47,17 +47,35 @@ data RepoSettings = RepoSettings
   -- ^ Repositories (git clone URL) to watch and build
   , branchWhitelist :: Set Text
   -- ^ Limit to building these branches to build
-  , cachix :: Maybe CachixSettings
-  -- ^ Cachix settings
+  , cliBinaryCacheProvider :: Maybe CLISelectedBinaryCacheProvider
+  -- ^ Binary cache settings selected via CLI (Cachix or Attic)
   }
   deriving stock (Show)
 
+-- | Cachix settings parsed from CLI.
 data CachixSettings = CachixSettings
   { cachixName :: Text
   -- ^ Name of the cachix cache
-  , authToken :: Text
-  -- ^ Auth token for the cachix cache
   }
+  deriving stock (Show)
+
+-- | Attic settings parsed from CLI.
+data AtticSettings = AtticSettings
+  { atticCliLoginName :: Text
+  -- ^ Login name for Attic
+  , atticCliCacheName :: Text
+  -- ^ Name of the Attic cache (part after the login name)
+  , atticCliCacheUrl :: Text
+  -- ^ URL of the Attic server
+  , atticCliTokenEnvVar :: Maybe Text
+  -- ^ Optional environment variable name for the Attic token (defaults to ATTIC_LOGIN_TOKEN)
+  }
+  deriving stock (Show)
+
+-- | Represents the choice of binary cache provider and its settings from CLI.
+data CLISelectedBinaryCacheProvider
+  = CLIUseCachix CachixSettings
+  | CLIUseAttic AtticSettings
   deriving stock (Show)
 
 defaultRepos :: [Text]
@@ -150,25 +168,54 @@ repoSettingsParser = do
           <> value defaultBranchesToBuild
           <> showDefault
       )
-  cachix <- optional cachixSettingsParser
+  cliBinaryCacheProvider <- optional cliBinaryCacheProviderParser
   pure RepoSettings {..}
+
+-- | Parser for BinaryCacheProvider (choosing between Cachix or Attic)
+cliBinaryCacheProviderParser :: Parser CLISelectedBinaryCacheProvider
+cliBinaryCacheProviderParser =
+  (CLIUseCachix <$> cachixSettingsParser) <|> (CLIUseAttic <$> atticSettingsParser)
 
 -- | Parser for CachixSettings
 cachixSettingsParser :: Parser CachixSettings
 cachixSettingsParser = do
   cachixName <-
     strOption
-      ( long "cachix-name"
+      ( long "cachix-cache-name" -- Renamed for clarity
           <> metavar "CACHIX_NAME"
-          <> help "Name of the cachix cache"
-      )
-  authToken <-
-    strOption
-      ( long "cachix-auth-token"
-          <> metavar "CACHIX_AUTH_TOKEN"
-          <> help "Auth token for the cachix cache"
+          <> help "Name of the Cachix cache to push to. CACHIX_AUTH_TOKEN env var must be set."
       )
   pure CachixSettings {..}
+
+-- | Parser for AtticSettings
+atticSettingsParser :: Parser AtticSettings
+atticSettingsParser = do
+  atticCliLoginName <-
+    strOption
+      ( long "attic-login-name"
+          <> metavar "ATTIC_LOGIN_NAME"
+          <> help "Login name for Attic (e.g., 'myorg')."
+      )
+  atticCliCacheName <-
+    strOption
+      ( long "attic-cache-name"
+          <> metavar "ATTIC_CACHE_NAME"
+          <> help "Name of the Attic cache (e.g., 'mycache'). Will be used as <login-name>:<cache-name>."
+      )
+  atticCliCacheUrl <-
+    strOption
+      ( long "attic-cache-url"
+          <> metavar "ATTIC_CACHE_URL"
+          <> help "URL of the Attic server (e.g., 'https://attic.example.com')."
+      )
+  atticCliTokenEnvVar <-
+    optional $ strOption
+      ( long "attic-token-env-var"
+          <> metavar "ATTIC_TOKEN_ENV_VAR"
+          <> help "Environment variable to read Attic token from (defaults to ATTIC_LOGIN_TOKEN)."
+          <> showDefaultWith (const "ATTIC_LOGIN_TOKEN") -- Show default in help
+      )
+  pure AtticSettings {..}
 
 -- | Full parser with info
 parseSettings :: HostName -> ParserInfo Settings

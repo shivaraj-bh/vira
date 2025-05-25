@@ -20,7 +20,10 @@ import Paths_vira qualified
 import Servant.Server.Generic (genericServe)
 import Vira.App (AppStack, Settings (..))
 import Vira.App qualified as App
+import Vira.App.CLI (RepoSettings (..), Settings (..))
 import Vira.App.CLI qualified as CLI
+import Vira.Lib.BinaryCache (BinaryCacheConfig (..), loginAttic)
+import Vira.Lib.BinaryCache qualified as BinaryCache
 import Vira.App.LinkTo.Resolve (linkTo)
 import Vira.App.Logging
 import Vira.Routes qualified as Routes
@@ -42,8 +45,31 @@ runVira = do
       let repos = settings.repo.cloneUrls
       bracket (openViraState repos) closeViraState $ \acid -> do
         supervisor <- Vira.Supervisor.newSupervisor
-        let st = App.AppState {linkTo = linkTo, ..}
-        App.runApp st $ app settings
+
+        -- Determine BinaryCacheConfig from CLI settings
+        let cliCacheProvider = settings.repo.cliBinaryCacheProvider
+        let effectiveBinaryCacheConfig = case cliCacheProvider of
+              Just (CLI.CLIUseCachix cachixCliCfg) ->
+                UseCachix $ BinaryCache.CachixConfig {BinaryCache.cachixCacheName = cachixCliCfg.cachixName}
+              Just (CLI.CLIUseAttic atticCliCfg) ->
+                UseAttic $ BinaryCache.AtticConfig
+                  { BinaryCache.atticLoginName = atticCliCfg.atticCliLoginName
+                  , BinaryCache.atticCacheName = atticCliCfg.atticCliCacheName
+                  , BinaryCache.atticCacheUrl = atticCliCfg.atticCliCacheUrl
+                  , BinaryCache.atticTokenEnvVar = atticCliCfg.atticCliTokenEnvVar
+                  }
+              Nothing -> NoBinaryCache
+
+        let st = App.AppState {linkTo = linkTo, settings = settings, acid = acid, supervisor = supervisor, effectiveBinaryCacheConfig = effectiveBinaryCacheConfig}
+
+        -- Perform Attic login if configured
+        App.runApp st $ do
+          case effectiveBinaryCacheConfig of
+            UseAttic atticCfg -> do
+              logInfo $ "Attic cache configured. Attempting login for " <> atticCfg.atticLoginName
+              loginAttic atticCfg -- This function is already in Eff AppStack
+            _ -> pure ()
+          app settings
 
     -- Vira application for given `Settings`
     app :: (HasCallStack) => Settings -> Eff AppStack ()

@@ -96,6 +96,7 @@ common library-shared
     , stm
     , streaming
     , time
+    , unliftio
     , wai-extra
     , wai-middleware-static
     , warp
@@ -116,7 +117,7 @@ library
     Vira.App.Logging
     Vira.App.Servant
     Vira.App.Stack
-    Vira.Lib.Cachix
+    Vira.Lib.BinaryCache
     Vira.Lib.Git
     Vira.Lib.HTMX
     Vira.Lib.Omnix
