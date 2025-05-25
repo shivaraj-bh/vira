@@ -116,7 +116,7 @@ library
     Vira.App.Logging
     Vira.App.Servant
     Vira.App.Stack
-    Vira.Lib.Cachix
+    Vira.Lib.BinaryCache
     Vira.Lib.Git
     Vira.Lib.HTMX
     Vira.Lib.Omnix

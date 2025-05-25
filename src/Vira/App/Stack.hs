@@ -12,6 +12,7 @@ import Servant (Handler (Handler), ServerError)
 import Servant.Links (Link)
 import Vira.App.CLI qualified as CLI
 import Vira.App.LinkTo.Type (LinkTo)
+import Vira.Lib.BinaryCache (BinaryCacheConfig) -- Add this import
 import Vira.App.Logging (Log, Message, runViraLog)
 import Vira.State.Core (ViraState)
 import Vira.Supervisor.Type (TaskSupervisor)
@@ -55,4 +56,5 @@ data AppState = AppState
     --
     -- This is decoupled from servant types deliberately to avoid cyclic imports.
     linkTo :: LinkTo -> Link
+  , effectiveBinaryCacheConfig :: BinaryCacheConfig -- New field
   }
