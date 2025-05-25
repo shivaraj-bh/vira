@@ -9,6 +9,8 @@ You do not need to import any other module to use logging, since this one re-exp
 module Vira.App.Logging (
   -- * Logging
   log,
+  logInfo,
+  logError,
 
   -- * Re-exports from co-log
   Severity (..),
@@ -46,3 +48,11 @@ runLogActionStdout =
 log :: forall es. (HasCallStack, Log Message :> es) => Severity -> Text -> Eff es ()
 log msgSeverity msgText =
   withFrozenCallStack $ logMsg $ Msg {msgStack = callStack, ..}
+
+-- | Log a message with Info severity.
+logInfo :: forall es. (HasCallStack, Log Message :> es) => Text -> Eff es ()
+logInfo = log Info
+
+-- | Log a message with Error severity.
+logError :: forall es. (HasCallStack, Log Message :> es) => Text -> Eff es ()
+logError = log Error
