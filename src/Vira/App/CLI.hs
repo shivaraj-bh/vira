@@ -169,7 +169,7 @@ repoSettingsParser = do
           <> value defaultBranchesToBuild
           <> showDefault
       )
-  binaryCache <- optional binaryCacheProviderParser -- Use the new combined parser
+  cliBinaryCacheProvider <- optional cliBinaryCacheProviderParser
   pure RepoSettings {..}
 
 -- | Parser for BinaryCacheProvider (choosing between Cachix or Attic)
