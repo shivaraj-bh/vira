@@ -4,7 +4,7 @@ module Vira.Page.JobPage where
 
 import Effectful (Eff)
 import Effectful.Error.Static (throwError)
-import Effectful.Process (CreateProcess (cwd), env, proc)
+import Effectful.Process (CreateProcess (cwd), createProcess, env, proc)
 import Effectful.Reader.Dynamic (ask, asks)
 import GHC.IO.Exception (ExitCode (..))
 import Htmx.Servant.Response
@@ -96,10 +96,20 @@ triggerNewBuild repoName branchName = do
   branch <- App.query (St.GetBranchByNameA repoName branchName) >>= maybe (throwError $ err404 {errBody = "No such branch"}) pure
   log Info $ "Building commit " <> show (repoName, branch.headCommit)
   mCachix <- asks $ App.cachix . App.repo . App.settings
+  mAttic <- asks $ App.attic . App.repo . App.settings
   asks App.supervisor >>= \supervisor -> do
     job <- App.update $ St.AddNewJobA repoName branchName branch.headCommit supervisor.baseWorkDir
     log Info $ "Added job " <> show job
-    let stages = getStages repo branch mCachix
+    let stages = getStages repo branch mCachix mAttic
+    -- If attic is configured, perform login before starting the task
+    case mAttic of
+      Just attic -> do
+        let loginProcess = atticLoginProcess attic.atticLoginName attic.atticCacheUrl attic.atticToken
+        log Info $ "Logging into attic for cache " <> show attic.atticCacheName
+        _ <- createProcess loginProcess
+        pass
+      Nothing -> pass
+
     Supervisor.startTask supervisor job.jobId job.jobWorkingDir stages $ \exitCode -> do
       let status = case exitCode of
             ExitSuccess -> St.JobFinished St.JobSuccess
@@ -109,12 +119,13 @@ triggerNewBuild repoName branchName = do
     log Info $ "Started task " <> show job.jobId
 
 -- | Get all build stages
-getStages :: St.Repo -> St.Branch -> Maybe App.CachixSettings -> NonEmpty CreateProcess
-getStages repo branch mCachix = do
+getStages :: St.Repo -> St.Branch -> Maybe App.CachixSettings -> Maybe App.AtticSettings -> NonEmpty CreateProcess
+getStages repo branch mCachix mAttic = do
   stageCreateProjectDir
     :| stagesClone
     <> [stageBuild]
     <> maybe mempty (one . stageCachix) mCachix
+    <> maybe mempty (one . stageAttic) mAttic
   where
     stageCreateProjectDir =
       proc "mkdir" ["project"]
@@ -129,4 +140,8 @@ getStages repo branch mCachix = do
       (cachixPushProcess cachix.cachixName "result")
         { env = Just [("CACHIX_AUTH_TOKEN", toString cachix.authToken)]
         , cwd = Just "project"
+        }
+    stageAttic attic =
+      (atticPushProcess (attic.atticLoginName <> ":" <> attic.atticCacheName) "result")
+        { cwd = Just "project"
         }

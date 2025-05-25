@@ -6,6 +6,7 @@ module Vira.App.CLI (
   Settings (..),
   RepoSettings (..),
   CachixSettings (..),
+  AtticSettings (..),
 
   -- * Function
   parseCLI,
@@ -48,6 +49,7 @@ data RepoSettings = RepoSettings
   , branchWhitelist :: Set Text
   -- ^ Limit to building these branches to build
   , cachix :: Maybe CachixSettings
+  , attic :: Maybe AtticSettings
   -- ^ Cachix settings
   }
   deriving stock (Show)
@@ -128,6 +130,19 @@ settingsParser hostName = do
       )
   pure Settings {..}
 
+-- | Attic settings
+data AtticSettings = AtticSettings
+  { atticLoginName :: Text
+  -- ^ Login name for attic
+  , atticCacheUrl :: Text
+  -- ^ Cache URL for attic
+  , atticCacheName :: Text
+  -- ^ Name of the attic cache
+  , atticToken :: Text
+  -- ^ Token for the attic cache
+  }
+  deriving stock (Show)
+
 -- | Parser for RepoSettings
 repoSettingsParser :: Parser RepoSettings
 repoSettingsParser = do
@@ -151,7 +166,37 @@ repoSettingsParser = do
           <> showDefault
       )
   cachix <- optional cachixSettingsParser
+  attic <- optional atticSettingsParser
   pure RepoSettings {..}
+
+-- | Parser for AtticSettings
+atticSettingsParser :: Parser AtticSettings
+atticSettingsParser = do
+  atticLoginName <-
+    strOption
+      ( long "attic-login-name"
+          <> metavar "ATTIC_LOGIN_NAME"
+          <> help "Login name for attic"
+      )
+  atticCacheUrl <-
+    strOption
+      ( long "attic-cache-url"
+          <> metavar "ATTIC_CACHE_URL"
+          <> help "Cache URL for attic"
+      )
+  atticCacheName <-
+    strOption
+      ( long "attic-cache-name"
+          <> metavar "ATTIC_CACHE_NAME"
+          <> help "Name of the attic cache"
+      )
+  atticToken <-
+    strOption
+      ( long "attic-token"
+          <> metavar "ATTIC_TOKEN"
+          <> help "Token for the attic cache"
+      )
+  pure AtticSettings {..}
 
 -- | Parser for CachixSettings
 cachixSettingsParser :: Parser CachixSettings
