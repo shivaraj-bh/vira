@@ -8,6 +8,7 @@
 module Vira.Lib.BinaryCache where
 
 import Control.Applicative ((<|>))
+import Control.Monad (void)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Aeson (FromJSON (..), ToJSON (..), withObject, (.:), (.:?))
 import Data.Text (Text)
@@ -17,12 +18,12 @@ import Effectful (Eff, IOE, (:>))
 -- Assuming you have a variant that doesn't need stdin and ignores output,
 -- or adapt as needed. If procStrictWithNonNullExitCode_ is not available,
 -- you might need to use procStrictWithNonNullExitCode and ignore its result.
-import Effectful.Process (Process, procStrictWithNonNullExitCode_)
+import Effectful.Process (Process, procStrictWithNonNullExitCode)
 import GHC.Generics (Generic)
 import System.Environment (lookupEnv)
 import UnliftIO.Exception (Exception, throwString) -- Or your preferred error handling
-import Vira.App.Logging (Log, Message, logInfo, logError, display) -- Assuming these are your logging functions
-import Relude.Extra.ToString (toString) -- For converting Text to String for proc
+import Vira.App.Logging (Log, Message, logInfo, logError) -- Assuming these are your logging functions
+-- toString is available from Relude (Prelude)
 
 data AtticConfig = AtticConfig
   { atticLoginName :: Text
@@ -75,7 +76,7 @@ instance Exception BinaryCacheException
 loginAttic :: (IOE :> es, Process :> es, Log Message :> es) => AtticConfig -> Eff es ()
 loginAttic AtticConfig{..} = do
   let tokenEnvName = T.unpack $ fromMaybe "ATTIC_LOGIN_TOKEN" atticTokenEnvVar
-  logInfo $ "Attempting Attic login for user " <> display atticLoginName <> " to cache " <> display atticCacheName <> " at " <> display atticCacheUrl <> " using token from " <> display (T.pack tokenEnvName)
+  logInfo $ "Attempting Attic login for user " <> atticLoginName <> " to cache " <> atticCacheName <> " at " <> atticCacheUrl <> " using token from " <> T.pack tokenEnvName
   mLoginToken <- liftIO $ lookupEnv tokenEnvName
   case mLoginToken of
     Nothing -> do
@@ -84,20 +85,20 @@ loginAttic AtticConfig{..} = do
       throwString $ T.unpack errMsg
     Just token -> do
       logInfo "Attic token found. Proceeding with attic login."
-      procStrictWithNonNullExitCode_ "attic" [toString atticLoginName, toString atticCacheUrl, token]
+      void $ procStrictWithNonNullExitCode "attic" [toString atticLoginName, toString atticCacheUrl, token]
       logInfo "Attic login command executed."
 
 -- | Pushes store paths to the configured binary cache.
 push :: (IOE :> es, Process :> es, Log Message :> es) => BinaryCacheConfig -> [FilePath] -> Eff es ()
 push NoBinaryCache _storePaths = logInfo "Binary caching is disabled. Skipping push."
 push (UseCachix CachixConfig{..}) storePaths = do
-  logInfo $ "Pushing to Cachix cache: " <> display cachixCacheName
+  logInfo $ "Pushing to Cachix cache: " <> cachixCacheName
   -- CACHIX_AUTH_TOKEN is expected to be in the environment.
-  procStrictWithNonNullExitCode_ "cachix" (["push", toString cachixCacheName] ++ map toText storePaths)
+  void $ procStrictWithNonNullExitCode "cachix" (["push", toString cachixCacheName] ++ storePaths)
   logInfo "Successfully pushed to Cachix."
 push (UseAttic AtticConfig{..}) storePaths = do
   let fullAtticCacheName = atticLoginName <> ":" <> atticCacheName
-  logInfo $ "Pushing to Attic cache: " <> display fullAtticCacheName
+  logInfo $ "Pushing to Attic cache: " <> fullAtticCacheName
   -- Attic login should have been performed separately if needed.
-  procStrictWithNonNullExitCode_ "attic" (["push", toString fullAtticCacheName] ++ map toText storePaths)
+  void $ procStrictWithNonNullExitCode "attic" (["push", toString fullAtticCacheName] ++ storePaths)
   logInfo "Successfully pushed to Attic."
