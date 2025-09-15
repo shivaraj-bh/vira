@@ -155,6 +155,7 @@ clone url =
   proc
     git
     [ "clone"
+    , "-v"
     , "--depth"
     , "1"
     , "--no-single-branch"
