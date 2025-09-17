@@ -8,8 +8,9 @@ Servant instances should be gated behind a Cabal flag.
 -}
 module Effectful.Git where
 
-import Colog (Message, Msg (..), Severity (..))
+-- import Colog (Message, Msg (..), Severity (..))
 import Data.Aeson (ToJSON)
+import Data.ByteString qualified as B
 import Data.Data (Data)
 import Data.IxSet.Typed (Indexable (..), IxSet, ixFun, ixList)
 import Data.Map.Strict qualified as Map
@@ -18,14 +19,17 @@ import Data.Text qualified as T
 import Data.Time (UTCTime)
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import Effectful (Eff, IOE, (:>))
-import Effectful.Colog (Log)
-import Effectful.Colog qualified as Log
+
+-- import Effectful.Colog (Log)
+-- import Effectful.Colog qualified as Log
 import Servant (FromHttpApiData, ToHttpApiData)
-import System.IO.Temp (withSystemTempDirectory)
+
+-- import System.IO.Temp (withSystemTempDirectory)
 import System.Process
 import System.Which (staticWhich)
-import Text.Megaparsec (Parsec, anySingle, manyTill, parse, takeRest)
-import Text.Megaparsec.Char (tab)
+
+-- import Text.Megaparsec (Parsec, anySingle, manyTill, parse, takeRest)
+-- import Text.Megaparsec.Char (tab)
 
 {- | Path to the `git` executable
 
@@ -84,70 +88,94 @@ type IxCommit = IxSet CommitIxs Commit
 instance Indexable CommitIxs Commit where
   indices = ixList (ixFun $ \commit -> [commit.commitId])
 
+{- | Get all branches available in the remote.
+
+Run `git ls-remote` and filter it to only include branches.
+
+https://git-scm.com/docs/git-ls-remote
+
+This replaces the function below until its performance regression is fixed in large monorepos
+-}
+remoteBranches :: (IOE :> es) => Text -> Eff es (Map BranchName Commit)
+remoteBranches url = do
+  -- Use System.Process to run and parse output
+  output <- liftIO $ readProcess git ["ls-remote", "--exit-code", "--branches", toString url, refsPattern] ""
+  return $ Map.fromList $ mapMaybe parseLine $ lines $ toText output
+  where
+    knownPrefix :: ByteString = "refs/heads/"
+    refsPattern = decodeUtf8 $ knownPrefix <> "*"
+    parseLine :: Text -> Maybe (BranchName, Commit)
+    parseLine line = case T.splitOn "\t" line of
+      [hash, name'] ->
+        let name = T.drop (B.length knownPrefix) name'
+         in Just (fromString . toString $ name, Commit (fromString . toString $ hash) "Dummy commit msg." (posixSecondsToUTCTime 0) "Dummy commit author" "Dummy author email")
+      _unexpectedPartitions -> Nothing
+
 {- | Get all remote branches with their commit information.
 
 Clones the repository and returns a Map of branch names to commits.
 Filters out the bare "origin" entry and strips "origin/" prefixes.
 -}
-remoteBranches :: (Log Message :> es, IOE :> es) => Text -> Eff es (Map BranchName Commit)
-remoteBranches url = do
-  -- Clone the repository temporarily to get detailed branch information using for-each-ref
-  -- TODO: In future, we want an unified 'workspace' management, where we clone git repo once and re-use that.
-  let cloneCmd = clone url
-  Log.logMsg $ Msg {msgSeverity = Info, msgText = "Running git clone: " <> show (cmdspec cloneCmd), msgStack = callStack}
-  let forEachRefCmd =
-        proc
-          git
-          [ "for-each-ref"
-          , "--format=%(refname:short)%09%(objectname)%09%(committerdate:unix)%09%(authorname)%09%(authoremail)%09%(subject)"
-          , "refs/remotes"
-          ]
-  Log.logMsg $ Msg {msgSeverity = Info, msgText = "Running git for-each-ref: " <> show (cmdspec forEachRefCmd), msgStack = callStack}
 
-  output <- liftIO $ withSystemTempDirectory "vira-git-clone" $ \tempDir -> do
-    -- Clone all remote branches, but with minimal depth for efficiency
-    _ <- readCreateProcess cloneCmd {cwd = Just tempDir} ""
-    -- Use git for-each-ref to get detailed branch information for remote branches only
-    readCreateProcess
-      forEachRefCmd
-        { cwd = Just tempDir
-        }
-      ""
+-- remoteBranches :: (Log Message :> es, IOE :> es) => Text -> Eff es (Map BranchName Commit)
+-- remoteBranches url = do
+--   -- Clone the repository temporarily to get detailed branch information using for-each-ref
+--   -- TODO: In future, we want an unified 'workspace' management, where we clone git repo once and re-use that.
+--   let cloneCmd = clone url
+--   Log.logMsg $ Msg {msgSeverity = Info, msgText = "Running git clone: " <> show (cmdspec cloneCmd), msgStack = callStack}
+--   let forEachRefCmd =
+--         proc
+--           git
+--           [ "for-each-ref"
+--           , "--format=%(refname:short)%09%(objectname)%09%(committerdate:unix)%09%(authorname)%09%(authoremail)%09%(subject)"
+--           , "refs/remotes"
+--           ]
+--   Log.logMsg $ Msg {msgSeverity = Info, msgText = "Running git for-each-ref: " <> show (cmdspec forEachRefCmd), msgStack = callStack}
 
-  -- Drop the first line, which is 'origin' (not a branch)
-  let gitRefLines = drop 1 $ lines $ T.strip (toText output)
-  commits <- catMaybes <$> mapM (parseCommitLine url) gitRefLines
-  return $ Map.fromList commits
-  where
-    parseCommitLine :: (Log Message :> es) => Text -> Text -> Eff es (Maybe (BranchName, Commit))
-    parseCommitLine repoUrl line = case parse gitRefParser "" line of
-      Left err -> do
-        Log.logMsg $ Msg {msgSeverity = Error, msgText = "Parse error for repo " <> repoUrl <> " on line '" <> line <> "': " <> toText @String (show err), msgStack = callStack}
-        return Nothing
-      Right result -> return $ Just result
+--   output <- liftIO $ withSystemTempDirectory "vira-git-clone" $ \tempDir -> do
+--     -- Clone all remote branches, but with minimal depth for efficiency
+--     _ <- readCreateProcess cloneCmd {cwd = Just tempDir} ""
+--     -- Use git for-each-ref to get detailed branch information for remote branches only
+--     readCreateProcess
+--       forEachRefCmd
+--         { cwd = Just tempDir
+--         }
+--       ""
 
-    gitRefParser :: Parsec Void Text (BranchName, Commit)
-    gitRefParser = do
-      branchName' <- toText <$> manyTill anySingle tab
-      commitId <- fromString <$> manyTill anySingle tab
-      timestampStr <- manyTill anySingle tab
-      author <- toText <$> manyTill anySingle tab
-      authorEmailRaw <- toText <$> manyTill anySingle tab
-      message <- takeRest
+--   -- Drop the first line, which is 'origin' (not a branch)
+--   let gitRefLines = drop 1 $ lines $ T.strip (toText output)
+--   commits <- catMaybes <$> mapM (parseCommitLine url) gitRefLines
+--   return $ Map.fromList commits
+--   where
+--     parseCommitLine :: (Log Message :> es) => Text -> Text -> Eff es (Maybe (BranchName, Commit))
+--     parseCommitLine repoUrl line = case parse gitRefParser "" line of
+--       Left err -> do
+--         Log.logMsg $ Msg {msgSeverity = Error, msgText = "Parse error for repo " <> repoUrl <> " on line '" <> line <> "': " <> toText @String (show err), msgStack = callStack}
+--         return Nothing
+--       Right result -> return $ Just result
 
-      -- Strip "origin/" prefix from branch name if present to get clean branch names
-      let branchName = fromString . toString $ T.stripPrefix "origin/" branchName' ?: branchName'
+--     gitRefParser :: Parsec Void Text (BranchName, Commit)
+--     gitRefParser = do
+--       branchName' <- toText <$> manyTill anySingle tab
+--       commitId <- fromString <$> manyTill anySingle tab
+--       timestampStr <- manyTill anySingle tab
+--       author <- toText <$> manyTill anySingle tab
+--       authorEmailRaw <- toText <$> manyTill anySingle tab
+--       message <- takeRest
 
-      -- Strip angle brackets from email if present (git %(authoremail) includes < >)
-      let authorEmail = T.strip $ fromMaybe authorEmailRaw $ do
-            stripped1 <- T.stripPrefix "<" authorEmailRaw
-            T.stripSuffix ">" stripped1
+--       -- Strip "origin/" prefix from branch name if present to get clean branch names
+--       let branchName = fromString . toString $ T.stripPrefix "origin/" branchName' ?: branchName'
 
-      timestamp <- maybe (fail $ "Invalid timestamp: " <> timestampStr) return (readMaybe timestampStr)
-      let date = posixSecondsToUTCTime (fromIntegral (timestamp :: Int))
+--       -- Strip angle brackets from email if present (git %(authoremail) includes < >)
+--       let authorEmail = T.strip $ fromMaybe authorEmailRaw $ do
+--             stripped1 <- T.stripPrefix "<" authorEmailRaw
+--             T.stripSuffix ">" stripped1
 
-      let commit = Commit commitId message date author authorEmail
-      return (branchName, commit)
+--       timestamp <- maybe (fail $ "Invalid timestamp: " <> timestampStr) return (readMaybe timestampStr)
+--       let date = posixSecondsToUTCTime (fromIntegral (timestamp :: Int))
+
+--       let commit = Commit commitId message date author authorEmail
+--       return (branchName, commit)
 
 -- | Return the `CreateProcess` to clone a repo with all remote branches
 clone :: Text -> CreateProcess
