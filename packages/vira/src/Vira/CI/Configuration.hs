@@ -22,7 +22,7 @@ applyConfig ::
 applyConfig configContent ctx pipeline = do
   result <- runInterpreterWithNixPackageDb $ do
     -- Set up the interpreter context
-    Hint.set [Hint.languageExtensions Hint.:= [Hint.OverloadedStrings, Hint.UnknownExtension "OverloadedRecordDot", Hint.UnknownExtension "OverloadedRecordUpdate", Hint.UnknownExtension "OverloadedLabels"]]
+    Hint.set [Hint.languageExtensions Hint.:= [Hint.OverloadedStrings, Hint.UnknownExtension "OverloadedRecordDot", Hint.UnknownExtension "OverloadedRecordUpdate", Hint.UnknownExtension "RebindableSyntax", Hint.UnknownExtension "OverloadedLabels"]]
 
     -- Import necessary modules
     Hint.setImports
